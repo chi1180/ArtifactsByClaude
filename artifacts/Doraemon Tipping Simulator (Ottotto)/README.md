@@ -4,7 +4,7 @@ An interactive 3D simulator that shows how far a Doraemon-like character tips ov
 
 > Unofficial fan-made project. Not affiliated with or endorsed by the rights holders of Doraemon.
 
-**Live demo:** _add your published link here_
+**Live demo:** https://chi1180.github.io/ArtifactsByClaude/artifacts/Doraemon%20Tipping%20Simulator%20(Ottotto)/Doraemon%20Tipping%20Simulator%20(Ottotto).html
 
 ## Features
 

@@ -4,7 +4,7 @@ A Pomodoro timer designed around the classic bead maze toy. Beads slide back and
 
 Built with Claude. Single HTML file, no dependencies, no build step.
 
-Live version: https://chi1180.github.io/ArtifactsByClaude/artifacts/Bead%20Maze%20Timer/Bead%20Maze%20Timer.html
+**[Live version](https://chi1180.github.io/ArtifactsByClaude/artifacts/Bead%20Maze%20Timer/Bead%20Maze%20Timer.html)**
 
 ## How it works
 

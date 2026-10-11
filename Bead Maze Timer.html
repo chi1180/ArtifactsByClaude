@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bead Maze Timer</title>
+<style>
+:root{--bg:#f3ead8;--ink:#3a2c1c;--sub:#7a6650;--panel:#fbf5e8;--line:#d9c9a8;--wood:#d9a864;--wood2:#b98544;--accent:#d8402f;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#241b12;--ink:#f1e6d0;--sub:#b4a285;--panel:#2f241a;--line:#493a2a}}
+:root[data-theme="dark"]{--bg:#241b12;--ink:#f1e6d0;--sub:#b4a285;--panel:#2f241a;--line:#493a2a}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:"Zen Maru Gothic","Hiragino Maru Gothic ProN","Yu Gothic",sans-serif;min-height:100%}
+main{max-width:520px;margin:0 auto;padding:16px}
+svg{width:100%;height:auto;display:block}
+.time{font-size:64px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums;line-height:1.1}
+.phase{text-align:center;color:var(--sub);margin:4px 0 12px}
+.row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+button{font:inherit;border:0;border-radius:999px;padding:12px 22px;background:var(--accent);color:#fff;font-weight:700;cursor:pointer}
+button.ghost{background:var(--panel);color:var(--ink);border:1px solid var(--line)}
+button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+.count{text-align:center;margin:12px 0;color:var(--sub)}
+details{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-top:14px}
+summary{cursor:pointer;font-weight:700}
+label{display:flex;justify-content:space-between;align-items:center;margin-top:10px}
+input{width:90px;font:inherit;padding:6px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);text-align:right}
+.note{font-size:13px;color:var(--sub);margin:8px 0 0}
+</style>
+</head>
+<body>
+<main>
+<svg id="toy" viewBox="0 0 400 290" role="img" aria-label="Bead maze toy">
+  <path id="w1" d="M70 222 C70 40 205 30 205 100 C205 160 105 120 130 155 C150 185 280 165 292 215" fill="none" stroke="#d8402f" stroke-width="5" stroke-linecap="round"/>
+  <path id="w2" d="M55 222 L55 95 C55 25 150 25 150 95 L150 222" fill="none" stroke="#f0c619" stroke-width="5" stroke-linecap="round"/>
+  <path id="w3" d="M225 225 L225 105 C225 35 300 35 300 105 L300 225" fill="none" stroke="#f0c619" stroke-width="5" stroke-linecap="round"/>
+  <path id="w4" d="M95 215 C95 150 150 175 190 190 C250 210 255 120 335 120 L335 225" fill="none" stroke="#2a4fb0" stroke-width="5" stroke-linecap="round"/>
+  <rect x="25" y="228" width="350" height="46" rx="8" fill="var(--wood)"/>
+  <rect x="25" y="262" width="350" height="12" rx="6" fill="var(--wood2)"/>
+  <g id="beads"></g>
+</svg>
+<div class="time" id="time">25:00</div>
+<div class="phase" id="phase">Ready</div>
+<div class="row">
+  <button id="go">Start</button>
+  <button class="ghost" id="skip">Skip</button>
+  <button class="ghost" id="reset">Reset</button>
+</div>
+<div class="count" id="count"></div>
+<details>
+  <summary>Settings</summary>
+  <label>Goal (min)<input id="sGoal" type="number" min="10" max="1440"></label>
+  <label>Focus (min)<input id="sWork" type="number" min="1" max="120"></label>
+  <label>Break (min)<input id="sBreak" type="number" min="1" max="60"></label>
+  <p class="note">The number of pomodoros is the goal time divided by (focus + break). Changing a value resets the timer.</p>
+</details>
+</main>
+<script>
+(function(){
+var COLORS=["#d8402f","#2f9e44","#2a4fb0","#f08a1c","#f0c619","#8a3fb0"];
+var cfg={goal:240,work:25,brk:5};
+try{var s=JSON.parse(localStorage.getItem("looping-cfg")||"null");if(s)cfg=Object.assign(cfg,s)}catch(e){}
+var $=function(i){return document.getElementById(i)};
+var wires=["w1","w2","w3","w4"].map(function(i){var p=$(i);return{p:p,len:p.getTotalLength()}});
+var beadsG=$("beads"),NS="http://www.w3.org/2000/svg";
+var N,done,phase,running,endAt,remain,beads,finished;
+
+function trayPos(i){var n=Math.max(N,1),w=330;return{x:45+(n===1?w/2:i*(w/(n-1))),y:245}}
+function build(){
+  N=Math.max(1,Math.round(cfg.goal/(cfg.work+cfg.brk)));
+  done=0;phase="work";running=false;finished=false;remain=cfg.work*60000;
+  beadsG.innerHTML="";beads=[];
+  for(var i=0;i<N;i++){
+    var c=document.createElementNS(NS,"circle");
+    c.setAttribute("r",N>14?9:12);beadsG.appendChild(c);
+    beads.push({el:c,i:i,w:wires[i%4],phase:Math.random()*2,speed:35+Math.random()*30,born:null,color:COLORS[i%COLORS.length]});
+    c.setAttribute("fill","#bdae92");c.setAttribute("opacity",".7");
+    var t=trayPos(i);c.setAttribute("cx",t.x);c.setAttribute("cy",t.y);
+  }
+  render();
+}
+function fmt(ms){var s=Math.max(0,Math.ceil(ms/1000));return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0")}
+function render(){
+  var left=running?Math.max(0,endAt-Date.now()):remain;
+  $("time").textContent=fmt(left);
+  $("phase").textContent=finished?"Goal reached!":(phase==="work"?"Focus":"Break")+(running?"":" (paused)");
+  $("count").textContent=done+" / "+N+" pomodoros done";
+  $("go").textContent=running?"Pause":(finished?"Again":"Start");
+  document.title=(running?fmt(left)+" ":"")+"Bead Maze Timer";
+}
+function beep(){
+  try{var a=new (window.AudioContext||window.webkitAudioContext)();
+    [0,.25,.5].forEach(function(d,k){var o=a.createOscillator(),g=a.createGain();o.frequency.value=k==2?1046:784;o.connect(g);g.connect(a.destination);
+      var t=a.currentTime+d;g.gain.setValueAtTime(.2,t);g.gain.exponentialRampToValueAtTime(.001,t+.22);o.start(t);o.stop(t+.25)})}catch(e){}
+}
+function notify(t,b){
+  try{if("Notification" in window&&Notification.permission==="granted")new Notification(t,{body:b})}catch(e){}
+}
+function nextPhase(){
+  if(phase==="work"){
+    var b=beads[done];b.born=performance.now();b.el.setAttribute("fill",b.color);b.el.setAttribute("opacity","1");
+    done++;
+    if(done>=N){finished=true;running=false;remain=0;beep();notify("Goal reached!","All "+N+" pomodoros are done.");render();return}
+    phase="break";remain=cfg.brk*60000;
+    beep();notify("Pomodoro complete","A new bead is on the wire. Take a "+cfg.brk+"-minute break.");
+  }else{
+    phase="work";remain=cfg.work*60000;
+    beep();notify("Break over","Time to start the next pomodoro.");
+  }
+  endAt=Date.now()+remain;render();
+}
+$("go").onclick=function(){
+  if(finished){build();return}
+  if(running){remain=Math.max(0,endAt-Date.now());running=false}
+  else{
+    try{if("Notification" in window&&Notification.permission==="default")Notification.requestPermission()}catch(e){}
+    endAt=Date.now()+remain;running=true;
+  }
+  render();
+};
+$("skip").onclick=function(){if(finished)return;if(!running)endAt=Date.now();else endAt=Date.now();running=true;nextPhase()};
+$("reset").onclick=build;
+["sGoal","sWork","sBreak"].forEach(function(id){
+  $(id).onchange=function(){
+    var g=+$("sGoal").value,w=+$("sWork").value,b=+$("sBreak").value;
+    if(g>=10&&w>=1&&b>=1){cfg={goal:g,work:w,brk:b};try{localStorage.setItem("looping-cfg",JSON.stringify(cfg))}catch(e){}build()}
+  };
+});
+$("sGoal").value=cfg.goal;$("sWork").value=cfg.work;$("sBreak").value=cfg.brk;
+
+var reduce=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+var last=performance.now();
+function frame(now){
+  var dt=(now-last)/1000;last=now;
+  if(running&&Date.now()>=endAt)nextPhase();
+  var k=running?(phase==="break"?1.6:1):.35;if(reduce)k=0;
+  for(var i=0;i<beads.length;i++){
+    var b=beads[i];if(b.born===null)continue;
+    b.phase+=dt*k*b.speed/b.w.len;
+    var u=b.phase%2;if(u>1)u=2-u;
+    var p=b.w.p.getPointAtLength(u*b.w.len);
+    var e=Math.min(1,(now-b.born)/900);e=1-Math.pow(1-e,3);
+    var t=trayPos(i),x=t.x+(p.x-t.x)*e,y=t.y+(p.y-t.y)*e;
+    var pop=(now-b.born<500)?1+.4*Math.sin((now-b.born)/500*Math.PI):1;
+    b.el.setAttribute("cx",x);b.el.setAttribute("cy",y);
+    b.el.setAttribute("transform","translate("+x*(1-pop)+","+y*(1-pop)+") scale("+pop+")");
+  }
+  render();
+  requestAnimationFrame(frame);
+}
+build();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

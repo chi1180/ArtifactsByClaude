@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Doraemon Tipping Simulator (Ottotto)</title>
+<style>
+:root{--bg:#eef6fb;--panel:#ffffff;--fg:#17324d;--sub:#5b738a;--line:#cfdde8;--ok:#1f9d55;--warn:#e08a00;--bad:#d6322f;--acc:#0b7fd8;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1a24;--panel:#182635;--fg:#e6eef6;--sub:#93a8bb;--line:#2a3d50;--acc:#4aa8f0}}
+:root[data-theme="dark"]{--bg:#0f1a24;--panel:#182635;--fg:#e6eef6;--sub:#93a8bb;--line:#2a3d50;--acc:#4aa8f0}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+#app{display:flex;flex-direction:column;height:100%;max-width:960px;margin:0 auto}
+#view{position:relative;flex:1;min-height:240px;touch-action:none}
+canvas{display:block;width:100%;height:100%}
+#badge{position:absolute;top:10px;left:10px;padding:6px 14px;border-radius:999px;font-weight:700;color:#fff;background:var(--ok);font-size:15px}
+#hint{position:absolute;bottom:6px;right:10px;font-size:11px;color:var(--sub)}
+#panel{background:var(--panel);border-top:1px solid var(--line);padding:12px 16px 14px}
+.row{display:flex;align-items:center;gap:10px;margin:6px 0}
+.row label{width:13em;font-size:13px;color:var(--sub)}
+.row input{flex:1;accent-color:var(--acc)}
+.row output{width:5.5em;text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
+#gauge{height:14px;border-radius:7px;background:var(--line);overflow:hidden;position:relative;margin-top:8px}
+#bar{height:100%;width:0;background:var(--ok);transition:background .2s}
+#mark{position:absolute;top:0;bottom:0;left:50%;width:2px;background:var(--fg)}
+#info{display:flex;flex-wrap:wrap;gap:4px 18px;font-size:13px;margin-top:6px;color:var(--sub)}
+#info b{color:var(--fg);font-variant-numeric:tabular-nums}
+button{font:inherit;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:8px;padding:5px 12px;cursor:pointer}
+.formula{font-size:12px;color:var(--sub);margin-top:6px}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="view"><canvas id="c"></canvas><div id="badge">Stable</div><div id="hint">Drag to rotate</div></div>
+  <div id="panel">
+    <div class="row"><label for="sm">Mass of held object</label><input id="sm" type="range" min="0" max="250" step="1" value="40"><output id="om"></output></div>
+    <div class="row"><label for="sp">Arm angle φ (from horizontal)</label><input id="sp" type="range" min="0" max="80" step="1" value="45"><output id="op"></output></div>
+    <div id="gauge"><div id="bar"></div><div id="mark"></div></div>
+    <div id="info">
+      <span>Critical mass m<sub>c</sub> = <b id="mc"></b></span>
+      <span>m / m<sub>c</sub> = <b id="rr"></b></span>
+      <span>Tilt = <b id="ang"></b></span>
+      <button id="rs">Reset</button>
+    </div>
+    <div class="formula">m<sub>c</sub> = wM / (2 l cosφ). The center line of the gauge is the limit (m = m<sub>c</sub>); past it, he tips over.</div>
+  </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const g=9.8,M=129.3,w=0.6,l=0.35,hc=0.55,sy=0.62;
+const kout=1.15*M*g*hc,kin=30*M*g*hc,as=0.3;
+let m=40,phi=45*Math.PI/180,a=0,om=0,t=0,sway=0;
+const $=id=>document.getElementById(id);
+const cv=$('c'),view=$('view');
+const R=new THREE.WebGLRenderer({canvas:cv,antialias:true,alpha:true});
+R.setPixelRatio(Math.min(devicePixelRatio,2));
+const S=new THREE.Scene();
+const cam=new THREE.PerspectiveCamera(40,1,0.1,50);
+S.add(new THREE.HemisphereLight(0xffffff,0x88aacc,0.9));
+const dl=new THREE.DirectionalLight(0xffffff,0.8);dl.position.set(2,4,4);S.add(dl);
+const mat=(c)=>new THREE.MeshLambertMaterial({color:c});
+const sph=(r,c,sx=1,sy_=1,sz=1)=>{const o=new THREE.Mesh(new THREE.SphereGeometry(r,28,20),mat(c));o.scale.set(sx,sy_,sz);return o};
+// ground
+const gr=new THREE.Mesh(new THREE.PlaneGeometry(6,4),mat(0xbfd9c0));gr.rotation.x=-Math.PI/2;gr.position.set(0.3,0,0.5);S.add(gr);
+// pivot marker
+const pv=new THREE.Mesh(new THREE.CylinderGeometry(0.02,0.02,2,8),mat(0xd6322f));pv.position.set(0,1,0);S.add(pv);
+const pvb=sph(0.05,0xd6322f);pvb.position.set(0,0.02,0);S.add(pvb);
+// doraemon
+const tilt=new THREE.Group();S.add(tilt);
+const D=new THREE.Group();D.position.x=w/2;tilt.add(D);
+const BLUE=0x1491e8,WH=0xffffff,RED=0xe6322f;
+const add=(o,x,y,z)=>{o.position.set(x,y,z);D.add(o);return o};
+add(new THREE.Mesh(new THREE.CylinderGeometry(0.27,0.3,0.5,28),mat(BLUE)),0,0.42,0);
+add(sph(0.22,WH,1,1,0.5),0,0.4,0.24);
+const pk=add(new THREE.Mesh(new THREE.TorusGeometry(0.12,0.012,8,24,Math.PI),mat(0x999999)),0,0.37,0.3);pk.rotation.z=Math.PI;
+add(sph(0.43,BLUE,1,0.95,0.95),0,0.88,0);
+add(sph(0.37,WH,1,0.92,0.7),0,0.84,0.14);
+[-0.1,0.1].forEach(x=>{add(sph(0.09,WH,0.85,1.1,0.5),x,1.04,0.34);add(sph(0.025,0x111111),x+(x<0?0.02:-0.02),1.04,0.4)});
+add(sph(0.05,RED),0,0.95,0.42);
+add(sph(0.2,0x8b1a1a,1,0.55,0.35),0,0.73,0.33);
+[-1,1].forEach(s=>[0.04,-0.05].forEach(dy=>{const wk=new THREE.Mesh(new THREE.CylinderGeometry(0.004,0.004,0.28,6),mat(0x222222));wk.rotation.z=Math.PI/2+s*dy*2;wk.position.set(s*0.26,0.88+dy*1.2,0.43);D.add(wk)}));
+const col=add(new THREE.Mesh(new THREE.TorusGeometry(0.3,0.025,8,32),mat(RED)),0,0.63,0);col.rotation.x=Math.PI/2;
+add(sph(0.045,0xf2c200),0,0.58,0.31);
+[-1,1].forEach(s=>add(sph(0.15,WH,1.1,0.8,1.1),s*0.16,0.1,0.02));
+// raised arm (outward = -x)
+const arm=new THREE.Group();arm.position.set(-0.3,sy,0);D.add(arm);
+const am=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.07,l,14),mat(BLUE));am.position.y=l/2;arm.add(am);
+const hand=sph(0.08,WH);hand.position.y=l;arm.add(hand);
+const obj=sph(1,0xc9822b,1,0.55,1);arm.add(obj);
+// free arm
+const farm=new THREE.Group();farm.position.set(0.3,sy,0);D.add(farm);
+const fm=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.07,l,14),mat(BLUE));fm.position.y=-l/2;farm.add(fm);
+const fh=sph(0.08,WH);fh.position.y=-l;farm.add(fh);
+// camera orbit
+let az=0.35,el=0.18,rad=4.3;
+function placeCam(){cam.position.set(0.3+rad*Math.sin(az)*Math.cos(el),0.75+rad*Math.sin(el),rad*Math.cos(az)*Math.cos(el));cam.lookAt(0.3,0.7,0)}
+let drag=null;
+cv.addEventListener('pointerdown',e=>{drag=[e.clientX,e.clientY];cv.setPointerCapture(e.pointerId)});
+cv.addEventListener('pointermove',e=>{if(!drag)return;az-=(e.clientX-drag[0])*0.008;el=Math.max(0.02,Math.min(1.2,el+(e.clientY-drag[1])*0.006));drag=[e.clientX,e.clientY]});
+cv.addEventListener('pointerup',()=>drag=null);
+function resize(){const W=view.clientWidth,H=view.clientHeight;R.setSize(W,H,false);cam.aspect=W/H;cam.updateProjectionMatrix();rad=W/H<0.8?6.2:4.3}
+addEventListener('resize',resize);resize();
+// physics
+function torque(x){
+  const d=l*Math.cos(phi),hh=sy+l*Math.sin(phi);
+  let T=g*(M*(-w/2*Math.cos(x)+hc*Math.sin(x))+m*(d*Math.cos(x)+hh*Math.sin(x)));
+  if(x<0)T-=kin*x;else if(x<as)T-=kout*x*(1-(x/as)*(x/as));
+  return T;
+}
+function mc(){return w*M/(2*l*Math.cos(phi))}
+function ui(){
+  const c=mc(),r=m/c;
+  $('om').textContent=m+' kg';$('op').textContent=Math.round(phi*180/Math.PI)+'°';
+  $('mc').textContent=c.toFixed(0)+' kg';$('rr').textContent=r.toFixed(2);
+  $('ang').textContent=(a*180/Math.PI).toFixed(1)+'°';
+  const bar=$('bar');bar.style.width=Math.min(100,r*50)+'%';
+  const b=$('badge');let s,col;
+  if(a>0.5){s='Fell over!';col='var(--bad)'}else if(r>=1){s='Tipping!';col='var(--bad)'}else if(r>0.75){s='Ottotto… (wobbling)';col='var(--warn)'}else{s='Stable';col='var(--ok)'}
+  b.textContent=s;b.style.background=col;bar.style.background=col;
+}
+function setObj(){
+  arm.rotation.z=Math.PI/2-phi;
+  const rr=0.07*Math.cbrt(Math.max(m,0)/20+0.05);
+  obj.visible=m>=1;obj.scale.set(rr*1.6,rr*1.6,rr*1.6);obj.position.set(0,l+0.07+rr*0.5,0);
+}
+$('sm').oninput=e=>{m=+e.target.value;setObj();ui()};
+$('sp').oninput=e=>{phi=e.target.value*Math.PI/180;setObj();ui()};
+$('rs').onclick=()=>{a=0;om=0};
+setObj();ui();
+let last=performance.now();
+function loop(now){
+  const dt=Math.min(0.05,(now-last)/1000);last=now;t+=dt;
+  const I=M*(hc*hc+0.09)+m*Math.pow(l*Math.cos(phi),2)+m*Math.pow(sy+l*Math.sin(phi),2);
+  const n=10,h=dt/n,c=30;
+  for(let i=0;i<n;i++){
+    om+=(torque(a)-c*om)/I*h;a+=om*h;
+    if(a>1.45){a=1.45;om*=-0.25}
+  }
+  const r=m/mc(),k=Math.max(0,Math.min(1,(r-0.6)/0.4));
+  const wob=k*k*(1-Math.min(1,Math.max(0,(a-0.3)/0.3)));
+  tilt.rotation.z=a+Math.sin(t*7)*0.045*wob;
+  farm.rotation.z=Math.sin(t*9)*0.9*wob+0.1;
+  placeCam();R.render(S,cam);ui();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
